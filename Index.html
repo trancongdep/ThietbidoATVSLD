@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HSE Dashboard v1.1</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-main: #ffffff;
+            --text-sub: #b0b0b0;
+            --accent: #2196F3;
+            --safe: #4CAF50;
+            --warning: #FFC107;
+            --danger: #FF5252;
+            --font-digital: 'Courier New', Courier, monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        
+        body { background-color: var(--bg-color); color: var(--text-main); padding-bottom: 80px; }
+
+        /* Header */
+        header {
+            padding: 15px;
+            background: var(--card-bg);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .app-title { font-weight: bold; font-size: 1.2rem; }
+        .status-badge { font-size: 0.8rem; padding: 4px 8px; border-radius: 4px; background: #333; }
+        .status-active { background: var(--safe); color: #000; font-weight: bold; }
+
+        /* Main Dashboard */
+        .dashboard { padding: 15px; display: flex; flex-direction: column; gap: 15px; }
+
+        /* Cards */
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            border-left: 5px solid #555;
+            transition: border-color 0.2s;
+        }
+
+        .card-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
+        .card-title { font-size: 1rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 1px; }
+        .card-icon { font-size: 1.2rem; }
+
+        .value-display {
+            font-family: var(--font-digital);
+            font-size: 3.5rem;
+            font-weight: bold;
+            line-height: 1;
+        }
+        .unit { font-size: 1rem; color: var(--text-sub); margin-left: 5px; }
+        
+        .sub-info {
+            margin-top: 10px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+            color: var(--text-sub);
+            border-top: 1px solid #333;
+            padding-top: 10px;
+        }
+
+        /* Sparkline / Graph Placeholder */
+        .bar-container {
+            height: 6px;
+            background: #333;
+            margin-top: 15px;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .bar-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.1s linear, background-color 0.2s; }
+
+        /* Action Bar */
+        .action-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: var(--card-bg);
+            padding: 15px;
+            display: flex;
+            gap: 10px;
+            border-top: 1px solid #333;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.5);
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-secondary { background: #444; color: white; }
+        .btn-record { background: var(--warning); color: #000; }
+
+        /* Helpers for status colors */
+        .safe { border-left-color: var(--safe) !important; color: var(--safe); }
+        .warning { border-left-color: var(--warning) !important; color: var(--warning); }
+        .danger { border-left-color: var(--danger) !important; color: var(--danger); }
+        .bg-safe { background-color: var(--safe) !important; }
+        .bg-warning { background-color: var(--warning) !important; }
+        .bg-danger { background-color: var(--danger) !important; }
+
+        /* Debug / Calibration Modal */
+        #debug-console {
+            display: none;
+            font-size: 0.8rem;
+            color: #555;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="app-title">HSE Monitor v1.1</div>
+    <div id="statusBadge" class="status-badge">Đã dừng</div>
+</header>
+
+<div class="dashboard">
+
+    <div class="card" id="card-noise">
+        <div class="card-header">
+            <span class="card-title">Tiếng ồn</span>
+            <span class="card-icon">🎤</span>
+        </div>
+        <div>
+            <span class="value-display" id="val-noise">--</span><span class="unit">dB</span>
+        </div>
+        <div class="bar-container">
+            <div class="bar-fill" id="bar-noise"></div>
+        </div>
+        <div class="sub-info">
+            <span>Max: <b id="max-noise">--</b> dB</span>
+            <span>Avg: <b id="avg-noise">--</b> dB</span>
+        </div>
+    </div>
+
+    <div class="card" id="card-light">
+        <div class="card-header">
+            <span class="card-title">Ánh sáng</span>
+            <span class="card-icon">💡</span>
+        </div>
+        <div>
+            <span class="value-display" id="val-light">--</span><span class="unit">Lux</span>
+        </div>
+        <div class="sub-info">
+            <span id="txt-light-status">Chờ đo...</span>
+        </div>
+    </div>
+
+    <div class="card" id="card-vibro">
+        <div class="card-header">
+            <span class="card-title">Rung động</span>
+            <span class="card-icon">〰️</span>
+        </div>
+        <div>
+            <span class="value-display" id="val-vibro">0.00</span><span class="unit">m/s²</span>
+        </div>
+        <div class="bar-container">
+            <div class="bar-fill" id="bar-vibro"></div>
+        </div>
+        <div class="sub-info">
+            <span>X: <span id="v-x">0</span></span>
+            <span>Y: <span id="v-y">0</span></span>
+            <span>Z: <span id="v-z">0</span></span>
+        </div>
+    </div>
+    
+    <div id="debug-console">Calibration Info: Noise Offset +0dB</div>
+
+</div>
+
+<div class="action-bar">
+    <button class="btn btn-primary" id="btnToggle" onclick="toggleMeasurement()">BẮT ĐẦU</button>
+    <button class="btn btn-secondary" onclick="snapshot()">CHỤP DL</button>
+    <button class="btn btn-secondary" onclick="exportCSV()">XUẤT FILE</button>
+</div>
+
+<script>
+    // --- CẤU HÌNH & TRẠNG THÁI ---
+    let isRunning = false;
+    
+    // Calibration (Hiệu chuẩn)
+    const NOISE_OFFSET = 0; // dB (Thêm vào nếu mic yếu)
+    const NOISE_REF = 50; // dBFS scaling factor (cần tinh chỉnh thực tế)
+    
+    // Data Storage
+    let noiseMax = 0;
+    let noiseSum = 0;
+    let noiseCount = 0;
+    let records = [];
+
+    // Hardware Objects
+    let audioContext = null;
+    let analyser = null;
+    let microphone = null;
+    let javascriptNode = null;
+    let lightSensor = null;
+
+    // --- DOM ELEMENTS ---
+    const ui = {
+        status: document.getElementById('statusBadge'),
+        btn: document.getElementById('btnToggle'),
+        noise: {
+            val: document.getElementById('val-noise'),
+            max: document.getElementById('max-noise'),
+            avg: document.getElementById('avg-noise'),
+            card: document.getElementById('card-noise'),
+            bar: document.getElementById('bar-noise')
+        },
+        light: {
+            val: document.getElementById('val-light'),
+            status: document.getElementById('txt-light-status'),
+            card: document.getElementById('card-light')
+        },
+        vibro: {
+            val: document.getElementById('val-vibro'),
+            x: document.getElementById('v-x'),
+            y: document.getElementById('v-y'),
+            z: document.getElementById('v-z'),
+            card: document.getElementById('card-vibro'),
+            bar: document.getElementById('bar-vibro')
+        }
+    };
+
+    // --- LOGIC ĐIỀU KHIỂN CHUNG ---
+    function toggleMeasurement() {
+        if (!isRunning) {
+            startSensors();
+        } else {
+            stopSensors();
+        }
+    }
+
+    async function startSensors() {
+        try {
+            // 1. Start Audio (Yêu cầu quyền người dùng)
+            await initAudio();
+            
+            // 2. Start Light Sensor
+            initLightSensor();
+            
+            // 3. Start Vibration (Accelerometer)
+            initVibration();
+
+            isRunning = true;
+            ui.status.textContent = "ĐANG ĐO";
+            ui.status.classList.add('status-active');
+            ui.btn.textContent = "DỪNG LẠI";
+            ui.btn.classList.replace('btn-primary', 'btn-record');
+            
+            // Reset temp stats
+            noiseMax = 0;
+            noiseSum = 0;
+            noiseCount = 0;
+
+        } catch (e) {
+            alert("Lỗi khởi động cảm biến: " + e.message);
+            console.error(e);
+        }
+    }
+
+    function stopSensors() {
+        // Stop Audio
+        if (audioContext && audioContext.state !== 'closed') {
+            audioContext.close();
+        }
+        
+        // Stop Light
+        if (lightSensor) lightSensor.stop();
+        
+        // Stop Vibration
+        window.removeEventListener('devicemotion', handleMotion);
+
+        isRunning = false;
+        ui.status.textContent = "Đã dừng";
+        ui.status.classList.remove('status-active');
+        ui.btn.textContent = "TIẾP TỤC";
+        ui.btn.classList.replace('btn-record', 'btn-primary');
+    }
+
+    // --- 1. LOGIC ÂM THANH (NOISE) ---
+    async function initAudio() {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        microphone = audioContext.createMediaStreamSource(stream);
+        javascriptNode = audioContext.createScriptProcessor(2048, 1, 1);
+
+        analyser.smoothingTimeConstant = 0.8;
+        analyser.fftSize = 1024;
+
+        microphone.connect(analyser);
+        analyser.connect(javascriptNode);
+        javascriptNode.connect(audioContext.destination);
+
+        javascriptNode.onaudioprocess = function() {
+            const array = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(array);
+            
+            let values = 0;
+            const length = array.length;
+            for (let i = 0; i < length; i++) {
+                values += (array[i]);
+            }
+
+            const average = values / length;
+            // Công thức ước lượng dB đơn giản từ tín hiệu
+            // Lưu ý: Cần thiết bị chuẩn để hiệu chỉnh con số 20 và NOISE_OFFSET
+            let db = Math.round(average + NOISE_REF + NOISE_OFFSET); 
+            if(db < 30) db = 30; // Min threshold
+
+            updateNoiseUI(db);
+        }
+    }
+
+    function updateNoiseUI(db) {
+        ui.noise.val.innerText = db;
+        
+        // Cập nhật Max/Avg
+        if (db > noiseMax) noiseMax = db;
+        noiseSum += db;
+        noiseCount++;
+        let avg = Math.round(noiseSum / noiseCount);
+        
+        ui.noise.max.innerText = noiseMax;
+        ui.noise.avg.innerText = avg;
+
+        // Visual Feedback
+        let colorClass = 'safe';
+        let width = Math.min((db / 120) * 100, 100);
+        
+        ui.noise.card.classList.remove('safe', 'warning', 'danger');
+        ui.noise.bar.classList.remove('bg-safe', 'bg-warning', 'bg-danger');
+
+        if (db >= 85) { // Nguy hiểm
+            colorClass = 'danger';
+            ui.noise.card.classList.add('danger');
+            ui.noise.bar.classList.add('bg-danger');
+        } else if (db >= 75) { // Cảnh báo
+            colorClass = 'warning';
+            ui.noise.card.classList.add('warning');
+            ui.noise.bar.classList.add('bg-warning');
+        } else {
+            ui.noise.card.classList.add('safe');
+            ui.noise.bar.classList.add('bg-safe');
+        }
+        ui.noise.bar.style.width = width + "%";
+    }
+
+    // --- 2. LOGIC ÁNH SÁNG (LIGHT) ---
+    function initLightSensor() {
+        if ('AmbientLightSensor' in window) {
+            try {
+                lightSensor = new AmbientLightSensor();
+                lightSensor.addEventListener('reading', () => {
+                    updateLightUI(lightSensor.illuminance);
+                });
+                lightSensor.addEventListener('error', (event) => {
+                    console.log(event.error.name, event.error.message);
+                    ui.light.status.innerText = "Lỗi cảm biến";
+                });
+                lightSensor.start();
+            } catch (err) {
+                ui.light.status.innerText = "Không hỗ trợ";
+            }
+        } else {
+            ui.light.val.innerText = "N/A";
+            ui.light.status.innerText = "Trình duyệt không hỗ trợ";
+        }
+    }
+
+    function updateLightUI(lux) {
+        ui.light.val.innerText = Math.round(lux);
+        let status = "Tối";
+        if (lux > 100) status = "Kho bãi/Hành lang";
+        if (lux > 300) status = "Văn phòng (Đạt)";
+        if (lux > 500) status = "Rất sáng";
+        if (lux > 1000) status = "Ngoài trời/Cực sáng";
+        ui.light.status.innerText = status;
+    }
+
+    // --- 3. LOGIC RUNG ĐỘNG (VIBRATION) ---
+    function initVibration() {
+        if (window.DeviceMotionEvent) {
+            window.addEventListener('devicemotion', handleMotion);
+        } else {
+            ui.vibro.val.innerText = "N/A";
+        }
+    }
+
+    function handleMotion(event) {
+        // Sử dụng acceleration (không bao gồm trọng lực) để đo độ rung máy móc
+        // Nếu null thì fallback sang accelerationIncludingGravity
+        let acc = event.acceleration;
+        if (!acc || acc.x === null) acc = event.accelerationIncludingGravity;
+
+        if (acc) {
+            const x = acc.x || 0;
+            const y = acc.y || 0;
+            const z = acc.z || 0;
+            
+            // Tính tổng hợp lực Vector
+            const total = Math.sqrt(x*x + y*y + z*z).toFixed(2);
+            
+            ui.vibro.val.innerText = total;
+            ui.vibro.x.innerText = x.toFixed(1);
+            ui.vibro.y.innerText = y.toFixed(1);
+            ui.vibro.z.innerText = z.toFixed(1);
+
+            // Visual bar for vibration
+            let width = Math.min((total / 5) * 100, 100); // Scale max 5 m/s2
+            ui.vibro.bar.style.width = width + "%";
+            
+            ui.vibro.card.classList.remove('danger');
+            if (total > 2.0) { // Ngưỡng rung mạnh giả định
+                ui.vibro.card.classList.add('danger');
+            }
+        }
+    }
+
+    // --- TÍNH NĂNG BÁO CÁO ---
+    function snapshot() {
+        if (!isRunning) {
+            alert("Vui lòng BẮT ĐẦU đo trước khi chụp dữ liệu.");
+            return;
+        }
+        
+        const record = {
+            time: new Date().toLocaleTimeString(),
+            noise_db: ui.noise.val.innerText,
+            light_lux: ui.light.val.innerText,
+            vibro_ms2: ui.vibro.val.innerText
+        };
+        
+        records.push(record);
+        
+        // Hiệu ứng nháy màn hình báo đã chụp
+        document.body.style.backgroundColor = "#333";
+        setTimeout(() => {
+            document.body.style.backgroundColor = "var(--bg-color)";
+        }, 100);
+        
+        alert(`Đã lưu mẫu số #${records.length}`);
+    }
+
+    function exportCSV() {
+        if (records.length === 0) {
+            alert("Chưa có dữ liệu nào được lưu.");
+            return;
+        }
+
+        let csvContent = "data:text/csv;charset=utf-8,";
+        csvContent += "Time,Noise(dB),Light(Lux),Vibration(m/s2)\n";
+
+        records.forEach(function(row) {
+            csvContent += `${row.time},${row.noise_db},${row.light_lux},${row.vibro_ms2}\n`;
+        });
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `HSE_Report_${new Date().toISOString().slice(0,10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+</script>
+
+</body>
+</html>
