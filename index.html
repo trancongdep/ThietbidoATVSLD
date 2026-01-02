@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>HSE Dashboard v1.1</title>
+    <title>HSE Dashboard v1.3</title>
     <style>
         :root {
             --bg-color: #121212;
@@ -14,12 +14,13 @@
             --safe: #4CAF50;
             --warning: #FFC107;
             --danger: #FF5252;
+            --grid-line: #333;
             --font-digital: 'Courier New', Courier, monospace;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         
-        body { background-color: var(--bg-color); color: var(--text-main); padding-bottom: 80px; }
+        body { background-color: var(--bg-color); color: var(--text-main); padding-bottom: 90px; }
 
         /* Header */
         header {
@@ -44,43 +45,57 @@
         .card {
             background: var(--card-bg);
             border-radius: 12px;
-            padding: 20px;
+            padding: 15px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
             border-left: 5px solid #555;
             transition: border-color 0.2s;
         }
 
-        .card-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
-        .card-title { font-size: 1rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 1px; }
+        .card-header { display: flex; justify-content: space-between; margin-bottom: 5px; }
+        .card-title { font-size: 0.9rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 1px; }
         .card-icon { font-size: 1.2rem; }
 
         .value-display {
             font-family: var(--font-digital);
-            font-size: 3.5rem;
+            font-size: 2.5rem;
             font-weight: bold;
             line-height: 1;
         }
         .unit { font-size: 1rem; color: var(--text-sub); margin-left: 5px; }
         
+        /* Graph Container */
+        .graph-wrapper {
+            position: relative;
+            height: 100px;
+            width: 100%;
+            background: #181818;
+            border: 1px solid #333;
+            border-radius: 6px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .graph-label {
+            position: absolute;
+            font-size: 0.6rem;
+            color: #555;
+            padding: 2px;
+            pointer-events: none;
+        }
+        .lbl-top { top: 0; left: 0; }
+        .lbl-bot { bottom: 0; left: 0; }
+
         .sub-info {
             margin-top: 10px;
             display: flex;
             justify-content: space-between;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             color: var(--text-sub);
-            border-top: 1px solid #333;
-            padding-top: 10px;
         }
-
-        /* Sparkline / Graph Placeholder */
-        .bar-container {
-            height: 6px;
-            background: #333;
-            margin-top: 15px;
-            border-radius: 3px;
-            overflow: hidden;
-        }
-        .bar-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.1s linear, background-color 0.2s; }
 
         /* Action Bar */
         .action-bar {
@@ -94,6 +109,7 @@
             gap: 10px;
             border-top: 1px solid #333;
             box-shadow: 0 -2px 10px rgba(0,0,0,0.5);
+            z-index: 101;
         }
 
         .btn {
@@ -109,27 +125,18 @@
         .btn-secondary { background: #444; color: white; }
         .btn-record { background: var(--warning); color: #000; }
 
-        /* Helpers for status colors */
-        .safe { border-left-color: var(--safe) !important; color: var(--safe); }
-        .warning { border-left-color: var(--warning) !important; color: var(--warning); }
+        /* Status Colors */
         .danger { border-left-color: var(--danger) !important; color: var(--danger); }
-        .bg-safe { background-color: var(--safe) !important; }
-        .bg-warning { background-color: var(--warning) !important; }
-        .bg-danger { background-color: var(--danger) !important; }
+        .warning { border-left-color: var(--warning) !important; color: var(--warning); }
+        .safe { border-left-color: var(--safe) !important; color: var(--safe); }
 
-        /* Debug / Calibration Modal */
-        #debug-console {
-            display: none;
-            font-size: 0.8rem;
-            color: #555;
-            margin-top: 10px;
-        }
+        #debug-console { display: none; }
     </style>
 </head>
 <body>
 
 <header>
-    <div class="app-title">HSE Monitor v1.1</div>
+    <div class="app-title">HSE Monitor v1.3</div>
     <div id="statusBadge" class="status-badge">Đã dừng</div>
 </header>
 
@@ -140,12 +147,14 @@
             <span class="card-title">Tiếng ồn</span>
             <span class="card-icon">🎤</span>
         </div>
-        <div>
-            <span class="value-display" id="val-noise">--</span><span class="unit">dB</span>
+        <div><span class="value-display" id="val-noise">--</span><span class="unit">dB</span></div>
+        
+        <div class="graph-wrapper">
+            <span class="graph-label lbl-top">100dB</span>
+            <span class="graph-label lbl-bot">30dB</span>
+            <canvas id="graph-noise"></canvas>
         </div>
-        <div class="bar-container">
-            <div class="bar-fill" id="bar-noise"></div>
-        </div>
+
         <div class="sub-info">
             <span>Max: <b id="max-noise">--</b> dB</span>
             <span>Avg: <b id="avg-noise">--</b> dB</span>
@@ -157,9 +166,14 @@
             <span class="card-title">Ánh sáng</span>
             <span class="card-icon">💡</span>
         </div>
-        <div>
-            <span class="value-display" id="val-light">--</span><span class="unit">Lux</span>
+        <div><span class="value-display" id="val-light">--</span><span class="unit">Lux</span></div>
+        
+        <div class="graph-wrapper">
+            <span class="graph-label lbl-top">1000lx</span>
+            <span class="graph-label lbl-bot">0lx</span>
+            <canvas id="graph-light"></canvas>
         </div>
+
         <div class="sub-info">
             <span id="txt-light-status">Chờ đo...</span>
         </div>
@@ -170,20 +184,20 @@
             <span class="card-title">Rung động</span>
             <span class="card-icon">〰️</span>
         </div>
-        <div>
-            <span class="value-display" id="val-vibro">0.00</span><span class="unit">m/s²</span>
+        <div><span class="value-display" id="val-vibro">0.00</span><span class="unit">m/s²</span></div>
+        
+        <div class="graph-wrapper">
+            <span class="graph-label lbl-top">5.0g</span>
+            <span class="graph-label lbl-bot">0.0g</span>
+            <canvas id="graph-vibro"></canvas>
         </div>
-        <div class="bar-container">
-            <div class="bar-fill" id="bar-vibro"></div>
-        </div>
+
         <div class="sub-info">
             <span>X: <span id="v-x">0</span></span>
             <span>Y: <span id="v-y">0</span></span>
             <span>Z: <span id="v-z">0</span></span>
         </div>
     </div>
-    
-    <div id="debug-console">Calibration Info: Noise Offset +0dB</div>
 
 </div>
 
@@ -194,25 +208,78 @@
 </div>
 
 <script>
+    // --- CLASS ĐỒ THỊ (GRAPH ENGINE) ---
+    class RealTimeGraph {
+        constructor(canvasId, color, minVal, maxVal) {
+            this.canvas = document.getElementById(canvasId);
+            this.ctx = this.canvas.getContext('2d');
+            this.color = color;
+            this.min = minVal;
+            this.max = maxVal;
+            this.data = new Array(100).fill(minVal); // Buffer 100 điểm
+            
+            // Set độ phân giải nội bộ để vẽ nét
+            this.canvas.width = 300; 
+            this.canvas.height = 100;
+        }
+
+        push(val) {
+            this.data.push(val);
+            this.data.shift(); // Xóa điểm cũ nhất
+            this.draw();
+        }
+
+        draw() {
+            const w = this.canvas.width;
+            const h = this.canvas.height;
+            const step = w / (this.data.length - 1);
+            const range = this.max - this.min;
+
+            // Xóa canvas
+            this.ctx.clearRect(0, 0, w, h);
+
+            // Vẽ đường
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = this.color;
+            this.ctx.lineWidth = 2;
+            this.ctx.lineJoin = 'round';
+
+            for (let i = 0; i < this.data.length; i++) {
+                let val = this.data[i];
+                // Clamp giá trị trong khoảng min/max để không vẽ ra ngoài
+                if (val > this.max) val = this.max;
+                if (val < this.min) val = this.min;
+
+                // Tính tọa độ Y (Đảo ngược vì Y=0 là cạnh trên)
+                const y = h - ((val - this.min) / range) * h;
+                const x = i * step;
+
+                if (i === 0) this.ctx.moveTo(x, y);
+                else this.ctx.lineTo(x, y);
+            }
+            this.ctx.stroke();
+        }
+    }
+
     // --- CẤU HÌNH & TRẠNG THÁI ---
     let isRunning = false;
     
-    // Calibration (Hiệu chuẩn)
-    const NOISE_OFFSET = 0; // dB (Thêm vào nếu mic yếu)
-    const NOISE_REF = 50; // dBFS scaling factor (cần tinh chỉnh thực tế)
+    // Calibration
+    const NOISE_REF = 50; 
     
     // Data Storage
-    let noiseMax = 0;
-    let noiseSum = 0;
-    let noiseCount = 0;
+    let noiseMax = 0, noiseSum = 0, noiseCount = 0;
     let records = [];
 
     // Hardware Objects
     let audioContext = null;
-    let analyser = null;
-    let microphone = null;
-    let javascriptNode = null;
     let lightSensor = null;
+    
+    // Khởi tạo các đồ thị
+    // Màu sắc: Tiếng ồn (Vàng cam), Ánh sáng (Xanh dương), Rung động (Đỏ hồng)
+    const graphNoise = new RealTimeGraph('graph-noise', '#FFC107', 30, 100);
+    const graphLight = new RealTimeGraph('graph-light', '#2196F3', 0, 1000);
+    const graphVibro = new RealTimeGraph('graph-vibro', '#FF5252', 0, 5);
 
     // --- DOM ELEMENTS ---
     const ui = {
@@ -222,42 +289,31 @@
             val: document.getElementById('val-noise'),
             max: document.getElementById('max-noise'),
             avg: document.getElementById('avg-noise'),
-            card: document.getElementById('card-noise'),
-            bar: document.getElementById('bar-noise')
+            card: document.getElementById('card-noise')
         },
         light: {
             val: document.getElementById('val-light'),
-            status: document.getElementById('txt-light-status'),
-            card: document.getElementById('card-light')
+            status: document.getElementById('txt-light-status')
         },
         vibro: {
             val: document.getElementById('val-vibro'),
             x: document.getElementById('v-x'),
             y: document.getElementById('v-y'),
             z: document.getElementById('v-z'),
-            card: document.getElementById('card-vibro'),
-            bar: document.getElementById('bar-vibro')
+            card: document.getElementById('card-vibro')
         }
     };
 
-    // --- LOGIC ĐIỀU KHIỂN CHUNG ---
+    // --- LOGIC ĐIỀU KHIỂN ---
     function toggleMeasurement() {
-        if (!isRunning) {
-            startSensors();
-        } else {
-            stopSensors();
-        }
+        if (!isRunning) startSensors();
+        else stopSensors();
     }
 
     async function startSensors() {
         try {
-            // 1. Start Audio (Yêu cầu quyền người dùng)
             await initAudio();
-            
-            // 2. Start Light Sensor
             initLightSensor();
-            
-            // 3. Start Vibration (Accelerometer)
             initVibration();
 
             isRunning = true;
@@ -266,27 +322,15 @@
             ui.btn.textContent = "DỪNG LẠI";
             ui.btn.classList.replace('btn-primary', 'btn-record');
             
-            // Reset temp stats
-            noiseMax = 0;
-            noiseSum = 0;
-            noiseCount = 0;
-
+            noiseMax = 0; noiseSum = 0; noiseCount = 0;
         } catch (e) {
-            alert("Lỗi khởi động cảm biến: " + e.message);
-            console.error(e);
+            alert("Lỗi: " + e.message);
         }
     }
 
     function stopSensors() {
-        // Stop Audio
-        if (audioContext && audioContext.state !== 'closed') {
-            audioContext.close();
-        }
-        
-        // Stop Light
-        if (lightSensor) lightSensor.stop();
-        
-        // Stop Vibration
+        if (audioContext) audioContext.close();
+        if (lightSensor) try { lightSensor.stop(); } catch(e){}
         window.removeEventListener('devicemotion', handleMotion);
 
         isRunning = false;
@@ -296,37 +340,29 @@
         ui.btn.classList.replace('btn-record', 'btn-primary');
     }
 
-    // --- 1. LOGIC ÂM THANH (NOISE) ---
+    // --- 1. AUDIO LOGIC ---
     async function initAudio() {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        analyser = audioContext.createAnalyser();
-        microphone = audioContext.createMediaStreamSource(stream);
-        javascriptNode = audioContext.createScriptProcessor(2048, 1, 1);
+        const analyser = audioContext.createAnalyser();
+        const microphone = audioContext.createMediaStreamSource(stream);
+        const scriptNode = audioContext.createScriptProcessor(2048, 1, 1);
 
-        analyser.smoothingTimeConstant = 0.8;
+        analyser.smoothingTimeConstant = 0.6; // Giảm smoothing để đồ thị nhạy hơn
         analyser.fftSize = 1024;
 
         microphone.connect(analyser);
-        analyser.connect(javascriptNode);
-        javascriptNode.connect(audioContext.destination);
+        analyser.connect(scriptNode);
+        scriptNode.connect(audioContext.destination);
 
-        javascriptNode.onaudioprocess = function() {
+        scriptNode.onaudioprocess = function() {
             const array = new Uint8Array(analyser.frequencyBinCount);
             analyser.getByteFrequencyData(array);
-            
             let values = 0;
-            const length = array.length;
-            for (let i = 0; i < length; i++) {
-                values += (array[i]);
-            }
-
-            const average = values / length;
-            // Công thức ước lượng dB đơn giản từ tín hiệu
-            // Lưu ý: Cần thiết bị chuẩn để hiệu chỉnh con số 20 và NOISE_OFFSET
-            let db = Math.round(average + NOISE_REF + NOISE_OFFSET); 
-            if(db < 30) db = 30; // Min threshold
-
+            for (let i = 0; i < array.length; i++) values += array[i];
+            
+            let db = Math.round((values / array.length) + NOISE_REF); 
+            if(db < 30) db = 30;
             updateNoiseUI(db);
         }
     }
@@ -334,155 +370,107 @@
     function updateNoiseUI(db) {
         ui.noise.val.innerText = db;
         
-        // Cập nhật Max/Avg
+        // Cập nhật Đồ thị
+        graphNoise.push(db);
+
+        // Stats
         if (db > noiseMax) noiseMax = db;
-        noiseSum += db;
-        noiseCount++;
-        let avg = Math.round(noiseSum / noiseCount);
-        
+        noiseSum += db; noiseCount++;
         ui.noise.max.innerText = noiseMax;
-        ui.noise.avg.innerText = avg;
+        ui.noise.avg.innerText = Math.round(noiseSum / noiseCount);
 
-        // Visual Feedback
-        let colorClass = 'safe';
-        let width = Math.min((db / 120) * 100, 100);
-        
+        // Warning Logic
         ui.noise.card.classList.remove('safe', 'warning', 'danger');
-        ui.noise.bar.classList.remove('bg-safe', 'bg-warning', 'bg-danger');
-
-        if (db >= 85) { // Nguy hiểm
-            colorClass = 'danger';
-            ui.noise.card.classList.add('danger');
-            ui.noise.bar.classList.add('bg-danger');
-        } else if (db >= 75) { // Cảnh báo
-            colorClass = 'warning';
-            ui.noise.card.classList.add('warning');
-            ui.noise.bar.classList.add('bg-warning');
-        } else {
-            ui.noise.card.classList.add('safe');
-            ui.noise.bar.classList.add('bg-safe');
-        }
-        ui.noise.bar.style.width = width + "%";
+        if (db >= 85) ui.noise.card.classList.add('danger');
+        else if (db >= 75) ui.noise.card.classList.add('warning');
+        else ui.noise.card.classList.add('safe');
     }
 
-    // --- 2. LOGIC ÁNH SÁNG (LIGHT) ---
+    // --- 2. LIGHT LOGIC ---
     function initLightSensor() {
+        if (navigator.permissions) {
+            navigator.permissions.query({ name: "ambient-light-sensor" }).then(res => {
+                if (res.state !== "denied") startLightInstance();
+                else ui.light.status.innerText = "Bị chặn quyền";
+            }).catch(() => startLightInstance());
+        } else startLightInstance();
+    }
+
+    function startLightInstance() {
         if ('AmbientLightSensor' in window) {
             try {
-                lightSensor = new AmbientLightSensor();
+                lightSensor = new AmbientLightSensor({ frequency: 5 }); // 5Hz update rate
                 lightSensor.addEventListener('reading', () => {
                     updateLightUI(lightSensor.illuminance);
                 });
-                lightSensor.addEventListener('error', (event) => {
-                    console.log(event.error.name, event.error.message);
-                    ui.light.status.innerText = "Lỗi cảm biến";
-                });
                 lightSensor.start();
-            } catch (err) {
-                ui.light.status.innerText = "Không hỗ trợ";
-            }
+            } catch (err) { ui.light.status.innerText = "Lỗi khởi tạo"; }
         } else {
             ui.light.val.innerText = "N/A";
-            ui.light.status.innerText = "Trình duyệt không hỗ trợ";
+            ui.light.status.innerText = "Không hỗ trợ";
         }
     }
 
     function updateLightUI(lux) {
         ui.light.val.innerText = Math.round(lux);
+        graphLight.push(lux); // Cập nhật đồ thị
+        
         let status = "Tối";
-        if (lux > 100) status = "Kho bãi/Hành lang";
-        if (lux > 300) status = "Văn phòng (Đạt)";
-        if (lux > 500) status = "Rất sáng";
-        if (lux > 1000) status = "Ngoài trời/Cực sáng";
+        if (lux > 300) status = "Đạt (Văn phòng)";
+        if (lux > 1000) status = "Rất sáng";
         ui.light.status.innerText = status;
     }
 
-    // --- 3. LOGIC RUNG ĐỘNG (VIBRATION) ---
+    // --- 3. VIBRATION LOGIC ---
     function initVibration() {
         if (window.DeviceMotionEvent) {
             window.addEventListener('devicemotion', handleMotion);
-        } else {
-            ui.vibro.val.innerText = "N/A";
-        }
+        } else ui.vibro.val.innerText = "N/A";
     }
 
     function handleMotion(event) {
-        // Sử dụng acceleration (không bao gồm trọng lực) để đo độ rung máy móc
-        // Nếu null thì fallback sang accelerationIncludingGravity
-        let acc = event.acceleration;
-        if (!acc || acc.x === null) acc = event.accelerationIncludingGravity;
-
+        let acc = event.acceleration || event.accelerationIncludingGravity;
         if (acc) {
             const x = acc.x || 0;
             const y = acc.y || 0;
             const z = acc.z || 0;
+            const total = Math.sqrt(x*x + y*y + z*z); // Giữ số thực để vẽ đồ thị mượt hơn
             
-            // Tính tổng hợp lực Vector
-            const total = Math.sqrt(x*x + y*y + z*z).toFixed(2);
-            
-            ui.vibro.val.innerText = total;
+            ui.vibro.val.innerText = total.toFixed(2);
             ui.vibro.x.innerText = x.toFixed(1);
             ui.vibro.y.innerText = y.toFixed(1);
             ui.vibro.z.innerText = z.toFixed(1);
-
-            // Visual bar for vibration
-            let width = Math.min((total / 5) * 100, 100); // Scale max 5 m/s2
-            ui.vibro.bar.style.width = width + "%";
             
+            graphVibro.push(total); // Cập nhật đồ thị
+
             ui.vibro.card.classList.remove('danger');
-            if (total > 2.0) { // Ngưỡng rung mạnh giả định
-                ui.vibro.card.classList.add('danger');
-            }
+            if (total > 2.0) ui.vibro.card.classList.add('danger');
         }
     }
 
-    // --- TÍNH NĂNG BÁO CÁO ---
+    // --- REPORT ---
     function snapshot() {
-        if (!isRunning) {
-            alert("Vui lòng BẮT ĐẦU đo trước khi chụp dữ liệu.");
-            return;
-        }
-        
-        const record = {
+        if (!isRunning) return alert("Vui lòng đo trước!");
+        records.push({
             time: new Date().toLocaleTimeString(),
-            noise_db: ui.noise.val.innerText,
-            light_lux: ui.light.val.innerText,
-            vibro_ms2: ui.vibro.val.innerText
-        };
-        
-        records.push(record);
-        
-        // Hiệu ứng nháy màn hình báo đã chụp
-        document.body.style.backgroundColor = "#333";
-        setTimeout(() => {
-            document.body.style.backgroundColor = "var(--bg-color)";
-        }, 100);
-        
-        alert(`Đã lưu mẫu số #${records.length}`);
+            noise: ui.noise.val.innerText,
+            light: ui.light.val.innerText,
+            vibro: ui.vibro.val.innerText
+        });
+        alert(`Đã lưu mẫu #${records.length}`);
     }
 
     function exportCSV() {
-        if (records.length === 0) {
-            alert("Chưa có dữ liệu nào được lưu.");
-            return;
-        }
-
-        let csvContent = "data:text/csv;charset=utf-8,";
-        csvContent += "Time,Noise(dB),Light(Lux),Vibration(m/s2)\n";
-
-        records.forEach(function(row) {
-            csvContent += `${row.time},${row.noise_db},${row.light_lux},${row.vibro_ms2}\n`;
-        });
-
-        const encodedUri = encodeURI(csvContent);
+        if (records.length === 0) return alert("Chưa có dữ liệu.");
+        let csv = "Time,Noise(dB),Light(Lux),Vibration(m/s2)\n";
+        records.forEach(r => csv += `${r.time},${r.noise},${r.light},${r.vibro}\n`);
         const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `HSE_Report_${new Date().toISOString().slice(0,10)}.csv`);
-        document.body.appendChild(link);
+        link.href = encodeURI("data:text/csv;charset=utf-8," + csv);
+        link.download = `HSE_Report_v1.3.csv`;
         link.click();
-        document.body.removeChild(link);
     }
 </script>
 
 </body>
 </html>
+
