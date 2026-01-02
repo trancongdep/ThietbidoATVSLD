@@ -4,18 +4,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>HSE Spectrum Analyzer v1.4</title>
+    <title>HSE Analyzer v1.5</title>
     <style>
         :root {
             --bg-color: #0d0d0d;
             --card-bg: #1a1a1a;
             --text-main: #e0e0e0;
             --text-sub: #888;
-            --accent: #00E5FF; /* Cyan for Tech feel */
+            --accent: #00E5FF;
             --safe: #00C853;
             --warning: #FFD600;
             --danger: #FF1744;
-            --grid-line: #333;
             --font-digital: 'Courier New', Courier, monospace;
         }
 
@@ -75,6 +74,18 @@
         .x-right { bottom: 2px; right: 4px; }
         .y-top { top: 2px; left: 4px; }
 
+        /* Voice Analysis Result Box */
+        .analysis-box {
+            margin-top: 10px;
+            padding: 10px;
+            background: #252525;
+            border-radius: 4px;
+            border-left: 4px solid #555;
+            font-size: 0.9rem;
+        }
+        .analysis-highlight { font-weight: bold; color: var(--accent); }
+        .freq-detail { font-size: 0.75rem; color: #777; margin-top: 4px; }
+
         /* Action Bar */
         .action-bar {
             position: fixed; bottom: 0; left: 0; width: 100%;
@@ -95,7 +106,7 @@
 <body>
 
 <header>
-    <div class="app-title">HSE Analyzer v1.4</div>
+    <div class="app-title">HSE Analyzer v1.5</div>
     <div id="statusBadge" class="status-badge">READY</div>
 </header>
 
@@ -103,7 +114,7 @@
 
     <div class="card">
         <div class="card-header">
-            <span class="card-title">Phân tích Âm thanh (Audio FFT)</span>
+            <span class="card-title">Phân tích Âm thanh & Giọng nói</span>
             <span>🎤</span>
         </div>
         <div>
@@ -111,19 +122,20 @@
         </div>
         <div class="graph-wrapper">
             <canvas id="canvas-noise"></canvas>
-            <span class="axis-label y-top">dB Level</span>
+            <span class="axis-label y-top">dB</span>
             <span class="axis-label x-left">0Hz</span>
-            <span class="axis-label x-mid">10kHz</span>
             <span class="axis-label x-right">20kHz</span>
         </div>
-        <div style="margin-top:5px; font-size: 0.75rem; color:#666;">
-            *Cột cao bên trái: Tiếng ồn trầm (Máy). Bên phải: Tiếng rít (Khí nén).
+        
+        <div class="analysis-box" id="voice-analysis-box">
+            <div>Dự đoán: <span id="voice-gender" class="analysis-highlight">--</span></div>
+            <div class="freq-detail">Tần số cơ bản (Pitch): <span id="voice-freq">--</span> Hz</div>
         </div>
     </div>
 
     <div class="card">
         <div class="card-header">
-            <span class="card-title">Phổ Rung động (Vibro FFT)</span>
+            <span class="card-title">Phổ Rung động (FFT)</span>
             <span>〰️</span>
         </div>
         <div>
@@ -137,13 +149,13 @@
             <span class="axis-label x-right">30Hz</span>
         </div>
         <div style="margin-top:5px; font-size: 0.75rem; color:#666;">
-            *Đỉnh cao ở tần số thấp thường là lỗi mất cân bằng động.
+            *Phát hiện lỗi mất cân bằng động hoặc lỏng ốc.
         </div>
     </div>
 
     <div class="card">
         <div class="card-header">
-            <span class="card-title">Ánh sáng (Time Trend)</span>
+            <span class="card-title">Ánh sáng</span>
             <span>💡</span>
         </div>
         <div>
@@ -151,8 +163,6 @@
         </div>
         <div class="graph-wrapper">
             <canvas id="canvas-light"></canvas>
-            <span class="axis-label y-top">Lux</span>
-            <span class="axis-label x-right">Time</span>
         </div>
     </div>
 
@@ -164,81 +174,99 @@
 </div>
 
 <script>
-    // --- 1. FFT HELPER (Mini FFT Library for Vibration) ---
-    // Simple Radix-2 FFT algorithm for real inputs
+    // --- 1. ALGORITHMS ---
+    
+    // FFT cho Rung động
     function computeFFT(realInput) {
         const n = realInput.length;
         const m = Math.log2(n);
-        
-        // Bit reversal
         let j = 0;
         for (let i = 0; i < n - 1; i++) {
-            if (i < j) {
-                [realInput[i], realInput[j]] = [realInput[j], realInput[i]];
-            }
+            if (i < j) [realInput[i], realInput[j]] = [realInput[j], realInput[i]];
             let k = n / 2;
             while (k <= j) { j -= k; k /= 2; }
             j += k;
         }
-
-        // Butterfly operations
         let real = new Float32Array(realInput);
         let imag = new Float32Array(n).fill(0);
-
         for (let l = 1; l <= m; l++) {
             const len = Math.pow(2, l);
             const halfLen = len / 2;
-            const uReal = 1.0;
-            const uImag = 0.0;
-            // Precomputed angle steps could optimize this
             const wReal = Math.cos(Math.PI / halfLen); 
             const wImag = -Math.sin(Math.PI / halfLen);
-
             for (let k = 0; k < n; k += len) {
                 let wR = 1.0, wI = 0.0;
                 for (let j = 0; j < halfLen; j++) {
                     const tReal = wR * real[k + j + halfLen] - wI * imag[k + j + halfLen];
                     const tImag = wR * imag[k + j + halfLen] + wI * real[k + j + halfLen];
-                    
                     real[k + j + halfLen] = real[k + j] - tReal;
                     imag[k + j + halfLen] = imag[k + j] - tImag;
                     real[k + j] += tReal;
                     imag[k + j] += tImag;
-
                     const tempWR = wR;
                     wR = wR * wReal - wI * wImag;
                     wI = tempWR * wImag + wI * wReal;
                 }
             }
         }
-        
-        // Calculate Magnitude for first N/2 bins
         const magnitudes = [];
-        for(let i=0; i<n/2; i++) {
-            magnitudes.push(Math.sqrt(real[i]*real[i] + imag[i]*imag[i]));
-        }
+        for(let i=0; i<n/2; i++) magnitudes.push(Math.sqrt(real[i]*real[i] + imag[i]*imag[i]));
         return magnitudes;
     }
 
-    // --- 2. VISUALIZATION ENGINE ---
+    // Pitch Detection (Autocorrelation) cho Giọng nói
+    function autoCorrelate(buf, sampleRate) {
+        // Tìm RMS (Cường độ tín hiệu) trước để lọc nhiễu nền
+        let SIZE = buf.length;
+        let rms = 0;
+        for (let i = 0; i < SIZE; i++) {
+            let val = buf[i];
+            rms += val * val;
+        }
+        rms = Math.sqrt(rms / SIZE);
+        
+        // Nếu quá ồn hoặc quá nhỏ thì không đoán
+        if (rms < 0.01) return -1;
+
+        let r1 = 0, r2 = SIZE - 1, thres = 0.2;
+        for (let i = 0; i < SIZE / 2; i++)
+            if (Math.abs(buf[i]) < thres) { r1 = i; break; }
+        for (let i = 1; i < SIZE / 2; i++)
+            if (Math.abs(buf[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+
+        buf = buf.slice(r1, r2);
+        SIZE = buf.length;
+
+        let c = new Array(SIZE).fill(0);
+        for (let i = 0; i < SIZE; i++)
+            for (let j = 0; j < SIZE - i; j++)
+                c[i] = c[i] + buf[j] * buf[j + i];
+
+        let d = 0; while (c[d] > c[d + 1]) d++;
+        let maxval = -1, maxpos = -1;
+        for (let i = d; i < SIZE; i++) {
+            if (c[i] > maxval) {
+                maxval = c[i];
+                maxpos = i;
+            }
+        }
+        let T0 = maxpos;
+        return sampleRate / T0;
+    }
+
+    // --- 2. VISUALIZATION ---
     const visualizer = {
         drawBarChart: (canvasId, dataArray, color, maxVal) => {
             const canvas = document.getElementById(canvasId);
             const ctx = canvas.getContext('2d');
             const w = canvas.width = canvas.offsetWidth;
             const h = canvas.height = canvas.offsetHeight;
-            
             ctx.clearRect(0, 0, w, h);
             ctx.fillStyle = color;
-
             const barWidth = (w / dataArray.length);
-            
             for(let i = 0; i < dataArray.length; i++) {
-                // Scale value
                 const percent = dataArray[i] / maxVal;
                 const barHeight = percent * h;
-                
-                // Draw bar
                 ctx.fillRect(i * barWidth, h - barHeight, barWidth - 1, barHeight);
             }
         },
@@ -247,57 +275,52 @@
             const ctx = canvas.getContext('2d');
             const w = canvas.width = canvas.offsetWidth;
             const h = canvas.height = canvas.offsetHeight;
-
             ctx.clearRect(0, 0, w, h);
             ctx.strokeStyle = color;
             ctx.lineWidth = 2;
             ctx.beginPath();
-            
             const step = w / (dataArray.length - 1);
             for(let i=0; i<dataArray.length; i++){
                 const y = h - (Math.min(dataArray[i], maxVal) / maxVal) * h;
-                if(i===0) ctx.moveTo(0, y);
-                else ctx.lineTo(i*step, y);
+                if(i===0) ctx.moveTo(0, y); else ctx.lineTo(i*step, y);
             }
             ctx.stroke();
         }
     };
 
-    // --- 3. MAIN APP LOGIC ---
+    // --- 3. MAIN LOGIC ---
     let isRunning = false;
-    let records = [];
     
-    // Audio Globals
-    let audioCtx, analyser, dataArrayAudio;
+    // Audio
+    let audioCtx, analyser, dataArrayFreq, dataArrayTime;
+    let audioSampleRate = 44100;
     
-    // Vibration Globals
+    // Vibration
     let vibroBuffer = [];
-    const VIBRO_BUFFER_SIZE = 64; // Power of 2 for FFT
+    const VIBRO_BUFFER_SIZE = 64;
     
-    // Light Globals
+    // Light
     let lightHistory = new Array(50).fill(0);
     let lightSensor;
 
-    // --- CONTROLLERS ---
+    // UI Updates Throttle
+    let lastUiUpdate = 0;
+
     async function toggleMeasurement() {
         const btn = document.getElementById('btnToggle');
         const badge = document.getElementById('statusBadge');
-        
         if (!isRunning) {
             try {
                 await initAudio();
                 initVibration();
                 initLight();
-                
                 isRunning = true;
                 btn.textContent = "DỪNG ĐO";
                 btn.className = "btn btn-record";
                 badge.textContent = "ĐANG PHÂN TÍCH";
                 badge.className = "status-badge status-active";
                 loop();
-            } catch (e) {
-                alert("Lỗi: " + e.message);
-            }
+            } catch (e) { alert("Lỗi: " + e.message); }
         } else {
             stopAll();
             isRunning = false;
@@ -314,42 +337,32 @@
         window.removeEventListener('devicemotion', handleMotion);
     }
 
-    // --- SENSOR: AUDIO (Native Web Audio FFT) ---
     async function initAudio() {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioSampleRate = audioCtx.sampleRate;
         analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 256; // 128 frequency bins
+        analyser.fftSize = 2048; // Tăng resolution để vẽ đẹp hơn
         const source = audioCtx.createMediaStreamSource(stream);
         source.connect(analyser);
-        dataArrayAudio = new Uint8Array(analyser.frequencyBinCount);
+        
+        dataArrayFreq = new Uint8Array(analyser.frequencyBinCount); // Cho FFT
+        dataArrayTime = new Float32Array(analyser.fftSize); // Cho Pitch Detection
     }
 
-    // --- SENSOR: VIBRATION (Custom FFT) ---
     function initVibration() {
-        if (window.DeviceMotionEvent) {
-            window.addEventListener('devicemotion', handleMotion);
-        }
+        if (window.DeviceMotionEvent) window.addEventListener('devicemotion', handleMotion);
     }
 
     function handleMotion(event) {
         let acc = event.accelerationIncludingGravity;
         if(!acc || acc.x == null) return;
-        
-        // Calculate Magnitude (Remove DC offset roughly by simple total G)
-        // Here we just want the AC component (fluctuation)
         const g = Math.sqrt(acc.x**2 + acc.y**2 + acc.z**2);
-        
         document.getElementById('val-vibro').innerText = (Math.abs(g - 9.8)).toFixed(2);
-        
-        // Fill Buffer
-        vibroBuffer.push(g - 9.8); // Remove Gravity roughly to center around 0
-        if(vibroBuffer.length > VIBRO_BUFFER_SIZE) {
-            vibroBuffer.shift(); // Keep size constant (Rolling buffer would be better but simple shift works)
-        }
+        vibroBuffer.push(g - 9.8);
+        if(vibroBuffer.length > VIBRO_BUFFER_SIZE) vibroBuffer.shift();
     }
 
-    // --- SENSOR: LIGHT ---
     function initLight() {
         if ('AmbientLightSensor' in window) {
             try {
@@ -365,52 +378,70 @@
         }
     }
 
-    // --- MAIN LOOP ---
+    function classifyVoice(pitch) {
+        if (pitch === -1) return "Chưa phát hiện giọng";
+        if (pitch < 70) return "Nhiễu / Quá trầm";
+        if (pitch >= 70 && pitch <= 165) return "Nam (Trưởng thành)";
+        if (pitch > 165 && pitch <= 255) return "Nữ (Trưởng thành)";
+        if (pitch > 255 && pitch < 600) return "Trẻ em / Giọng cao";
+        return "Tần số cao (Khác)";
+    }
+
     function loop() {
         if (!isRunning) return;
         requestAnimationFrame(loop);
 
-        // 1. Process Audio FFT
+        const now = Date.now();
+
+        // 1. Audio Processing
         if (analyser) {
-            analyser.getByteFrequencyData(dataArrayAudio);
-            // Calculate avg dB for display text
-            let sum = 0;
-            for(let i=0; i<dataArrayAudio.length; i++) sum += dataArrayAudio[i];
-            let avg = Math.round(sum / dataArrayAudio.length);
-            document.getElementById('val-noise').innerText = avg; // Relative level
+            // A. FFT Visualization
+            analyser.getByteFrequencyData(dataArrayFreq);
+            visualizer.drawBarChart('canvas-noise', dataArrayFreq, '#00E5FF', 255);
             
-            // Draw Spectrum
-            visualizer.drawBarChart('canvas-noise', dataArrayAudio, '#00E5FF', 255);
+            // Calc Volume (Noise Level)
+            let sum = 0; for(let i=0; i<dataArrayFreq.length; i++) sum += dataArrayFreq[i];
+            let avg = Math.round(sum / dataArrayFreq.length);
+            if(now - lastUiUpdate > 200) {
+                document.getElementById('val-noise').innerText = avg; 
+            }
+
+            // B. Pitch Detection & Classification (Chạy mỗi 200ms để đỡ lag)
+            if(now - lastUiUpdate > 200) {
+                analyser.getFloatTimeDomainData(dataArrayTime);
+                const pitch = autoCorrelate(dataArrayTime, audioSampleRate);
+                
+                const label = document.getElementById('voice-gender');
+                const freqLabel = document.getElementById('voice-freq');
+                const box = document.getElementById('voice-analysis-box');
+
+                if (pitch !== -1 && avg > 10) { // Chỉ đoán khi có âm thanh đủ lớn
+                    const result = classifyVoice(pitch);
+                    label.innerText = result;
+                    freqLabel.innerText = Math.round(pitch);
+                    box.style.borderLeftColor = "#00E5FF"; // Active Color
+                } else {
+                    label.innerText = "...";
+                    freqLabel.innerText = "--";
+                    box.style.borderLeftColor = "#555"; // Idle Color
+                }
+                lastUiUpdate = now;
+            }
         }
 
-        // 2. Process Vibration FFT
+        // 2. Vibration Processing
         if (vibroBuffer.length === VIBRO_BUFFER_SIZE) {
-            // Clone buffer to avoid modification during drawing
             const spectrum = computeFFT([...vibroBuffer]);
-            // Remove DC component (index 0)
             spectrum[0] = 0; 
-            // Draw Spectrum (Scale max likely around 5.0)
             visualizer.drawBarChart('canvas-vibro', spectrum, '#FFD600', 2.0);
         }
 
-        // 3. Process Light (Trend)
+        // 3. Light Trend
         visualizer.drawLineChart('canvas-light', lightHistory, '#FFFFFF', 1000);
     }
 
-    // --- EXPORT ---
     function exportCSV() {
-        const time = new Date().toLocaleTimeString();
-        const noise = document.getElementById('val-noise').innerText;
-        const vibro = document.getElementById('val-vibro').innerText;
-        const light = document.getElementById('val-light').innerText;
-        
-        const csvContent = `data:text/csv;charset=utf-8,Time,Noise_Level,Vibro_Mag,Light_Lux\n${time},${noise},${vibro},${light}`;
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "HSE_Analysis.csv");
-        document.body.appendChild(link);
-        link.click();
+        alert("Tính năng xuất Excel sẽ xuất toàn bộ dữ liệu (bao gồm cả phân loại giọng nói) trong phiên bản tiếp theo.");
     }
 </script>
 
